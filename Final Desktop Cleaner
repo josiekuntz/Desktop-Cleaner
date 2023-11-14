@@ -1,0 +1,155 @@
+
+import os
+import shutil
+from datetime import datetime, timedelta, time
+from pathlib import Path
+from watchdog.events import FileSystemEventHandler
+
+# Map file extensions to subdirectories
+extension_paths = {
+    '.txt': 'TextFiles',
+    '.pdf': 'PDFs',
+    '.docx': 'WordDocuments',
+    # Add more extensions and corresponding subdirectories as needed
+}
+
+# Set the maximum age of files to be considered for organization (in days)
+max_age_days = 30
+
+# Set the desired time for file organization (24-hour format)
+organization_time = time(12, 0)  # Adjust this time to your desired organization time
+
+# Specify the source folder (desktop), deletion folder, days threshold,
+# and deletion threshold (how long files stay in the deletion folder before actual deletion)
+desktop_folder = '/path/to/your/desktop'
+deletion_folder = '/path/to/your/deletion/folder'
+days_threshold = 30  # Adjust this value based on your requirement for moving files to deletion folder
+deletion_threshold = 7  # Adjust this value based on how long files stay in the deletion folder before actual deletion
+
+def add_date_to_path(path: Path):
+    """
+    Helper function that adds the current year/month to the destination path. If the path
+    doesn't already exist, it is created.
+
+    :param Path path: destination root to append subdirectories based on date
+    """
+    dated_path = path / f'{datetime.today().year}' / f'{datetime.today().month:02d}'
+    dated_path.mkdir(parents=True, exist_ok=True)
+    return dated_path
+
+def rename_file(source: Path, destination_path: Path):
+    """
+    Helper function that renames a file to reflect the new path. If a file with the same
+    name already exists in the destination folder, the file name is numbered and
+    incremented until the filename is unique (prevents overwriting files).
+
+    :param Path source: source of file to be moved
+    :param Path destination_path: path to destination directory
+    """
+    if Path(destination_path / source.name).exists():
+        increment = 0
+
+        while True:
+            increment += 1
+            new_name = destination_path / f'{source.stem}_{increment}{source.suffix}'
+
+            if not new_name.exists():
+                return new_name
+    else:
+        return destination_path / source.name
+
+class EventHandler(FileSystemEventHandler):
+    def __init__(self, watch_path: Path, destination_root: Path, max_age_days: int):
+        self.watch_path = watch_path.resolve()
+        self.destination_root = destination_root.resolve()
+        self.max_age_days = max_age_days
+
+    def on_modified(self, event):
+        # Check if the current time is equal to or later than the organization time
+        current_time = datetime.now().time()
+        if current_time >= organization_time:
+            for child in self.watch_path.iterdir():
+                # skips directories and non-specified extensions
+                if child.is_file() and child.suffix.lower() in extension_paths:
+                    destination_path = self.destination_root / extension_paths[child.suffix.lower()]
+                    destination_path = add_date_to_path(path=destination_path)
+                    destination_path = rename_file(source=child, destination_path=destination_path)
+
+                    # Calculate the threshold date for old files
+                    threshold_date = datetime.today() - timedelta(days=self.max_age_days)
+
+                    # Get the last modified time of the file
+                    last_modified_time = datetime.fromtimestamp(child.stat().st_mtime)
+
+                    # Check if the file is older than the threshold date
+                    if last_modified_time < threshold_date:
+                        shutil.move(src=child, dst=destination_path)
+
+            # Check for old files in the deletion folder
+            delete_old_files_and_sort(self.watch_path, self.destination_root, self.max_age_days, deletion_threshold)
+
+def delete_old_files_and_sort(deletion_folder, destination_root, max_age_days, deletion_threshold):
+    # Calculate the threshold date for deleting files in the deletion folder
+    deletion_threshold_date = datetime.today() - timedelta(days=deletion_threshold)
+
+    # List files by type
+    files_by_type = {}
+
+    # Iterate through files in the deletion folder
+    for filename in os.listdir(deletion_folder):
+        file_path = os.path.join(deletion_folder, filename)
+
+        # Check if it is a file and not a directory
+        if os.path.isfile(file_path):
+            # Get the last modified time of the file
+            last_modified_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+
+            # Check if the file is older than the deletion threshold date
+            if last_modified_time < deletion_threshold_date:
+                os.remove(file_path)
+                print(f"Deleted old file: {filename}")
+            else:
+                # Get the file type/extension
+                file_type = filename.split('.')[-1].lower()
+
+                # Move the file to the appropriate folder based on type
+                if file_type not in files_by_type:
+                    files_by_type[file_type] = []
+
+                files_by_type[file_type].append(filename)
+
+    # Create subfolders for each file type within the deletion folder
+    for file_type, files in files_by_type.items():
+        type_folder = os.path.join(destination_root, file_type)
+        if not os.path.exists(type_folder):
+            os.makedirs(type_folder)
+
+        # Move files to the respective subfolders
+        for filename in files:
+            source_path = os.path.join(deletion_folder, filename)
+            destination_path = os.path.join(type_folder, filename)
+            shutil.move(source_path, destination_path)
+            print(f"Moved {filename} to {type_folder}")
+
+if __name__ == "__main__":
+    # Create an event handler and start monitoring
+    event_handler = EventHandler(
+        watch_path=Path(desktop_folder),
+        destination_root=Path(deletion_folder),
+        max_age_days=max_age_days
+    )
+
+    from watchdog.observers import Observer
+
+    observer = Observer()
+    observer.schedule(event_handler, path=desktop_folder, recursive=True)
+    observer.start()
+
+    try:
+        print(f"Monitoring folder: {desktop_folder}")
+        print(f"Organizing files to: {deletion_folder}")
+        observer.join()
+    except KeyboardInterrupt:
+        observer.stop()
+
+    observer.join()
