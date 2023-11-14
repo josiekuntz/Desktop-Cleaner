@@ -1,11 +1,11 @@
-
-import os
-import shutil
-from datetime import datetime, timedelta, time
-from pathlib import Path
-from watchdog.events import FileSystemEventHandler
+import os #Added by Josie
+import shutil #from Kalle Hallden desktop_cleaner repository
+from datetime import datetime, timedelta, time #Added by Josie
+from pathlib import Path #from Kalle Hallden desktop_cleaner repository
+from watchdog.events import FileSystemEventHandler #from Kalle Hallden desktop_cleaner repository
 
 # Map file extensions to subdirectories
+# Added by Ashtyn
 extension_paths = {
     '.txt': 'TextFiles',
     '.pdf': 'PDFs',
@@ -14,19 +14,23 @@ extension_paths = {
 }
 
 # Set the maximum age of files to be considered for organization (in days)
-max_age_days = 30
+# Added by Josie
+max_age_days = 30 
 
 # Set the desired time for file organization (24-hour format)
+# From ChatGPT
 organization_time = time(12, 0)  # Adjust this time to your desired organization time
 
 # Specify the source folder (desktop), deletion folder, days threshold,
 # and deletion threshold (how long files stay in the deletion folder before actual deletion)
+# Added by Josie
 desktop_folder = '/path/to/your/desktop'
 deletion_folder = '/path/to/your/deletion/folder'
 days_threshold = 30  # Adjust this value based on your requirement for moving files to deletion folder
 deletion_threshold = 7  # Adjust this value based on how long files stay in the deletion folder before actual deletion
 
 def add_date_to_path(path: Path):
+    # from Kalle Hallden desktop_cleaner repository
     """
     Helper function that adds the current year/month to the destination path. If the path
     doesn't already exist, it is created.
@@ -38,6 +42,7 @@ def add_date_to_path(path: Path):
     return dated_path
 
 def rename_file(source: Path, destination_path: Path):
+    # from Kalle Hallden desktop_cleaner repository
     """
     Helper function that renames a file to reflect the new path. If a file with the same
     name already exists in the destination folder, the file name is numbered and
@@ -59,12 +64,14 @@ def rename_file(source: Path, destination_path: Path):
         return destination_path / source.name
 
 class EventHandler(FileSystemEventHandler):
+    # from Kalle Hallden desktop_cleaner repository
     def __init__(self, watch_path: Path, destination_root: Path, max_age_days: int):
         self.watch_path = watch_path.resolve()
         self.destination_root = destination_root.resolve()
         self.max_age_days = max_age_days
 
     def on_modified(self, event):
+        # from Kalle Hallden desktop_cleaner repository
         # Check if the current time is equal to or later than the organization time
         current_time = datetime.now().time()
         if current_time >= organization_time:
@@ -76,12 +83,15 @@ class EventHandler(FileSystemEventHandler):
                     destination_path = rename_file(source=child, destination_path=destination_path)
 
                     # Calculate the threshold date for old files
+                    # Added from ChatGPT
                     threshold_date = datetime.today() - timedelta(days=self.max_age_days)
 
                     # Get the last modified time of the file
+                    # Added from ChatGPT
                     last_modified_time = datetime.fromtimestamp(child.stat().st_mtime)
 
                     # Check if the file is older than the threshold date
+                    # Added from ChatGPT
                     if last_modified_time < threshold_date:
                         shutil.move(src=child, dst=destination_path)
 
@@ -89,6 +99,7 @@ class EventHandler(FileSystemEventHandler):
             delete_old_files_and_sort(self.watch_path, self.destination_root, self.max_age_days, deletion_threshold)
 
 def delete_old_files_and_sort(deletion_folder, destination_root, max_age_days, deletion_threshold):
+    # Added from ChatGPT
     # Calculate the threshold date for deleting files in the deletion folder
     deletion_threshold_date = datetime.today() - timedelta(days=deletion_threshold)
 
@@ -132,6 +143,7 @@ def delete_old_files_and_sort(deletion_folder, destination_root, max_age_days, d
             print(f"Moved {filename} to {type_folder}")
 
 if __name__ == "__main__":
+    # Added from ChatGPT
     # Create an event handler and start monitoring
     event_handler = EventHandler(
         watch_path=Path(desktop_folder),
@@ -146,6 +158,7 @@ if __name__ == "__main__":
     observer.start()
 
     try:
+        # Added from ChatGPT
         print(f"Monitoring folder: {desktop_folder}")
         print(f"Organizing files to: {deletion_folder}")
         observer.join()
