@@ -1,0 +1,99 @@
+import shutil
+from datetime import date, timedelta
+from pathlib import Path
+
+from watchdog.events import FileSystemEventHandler
+
+# Map file extensions to subdirectories
+extension_paths = {
+    '.txt': 'TextFiles',
+    '.pdf': 'PDFs',
+    '.docx': 'WordDocuments',
+    # Add more extensions and corresponding subdirectories as needed
+}
+
+# Set the maximum age of files to be considered for organization (in days)
+max_age_days = 30
+
+def add_date_to_path(path: Path):
+    """
+    Helper function that adds the current year/month to the destination path. If the path
+    doesn't already exist, it is created.
+
+    :param Path path: destination root to append subdirectories based on date
+    """
+    dated_path = path / f'{date.today().year}' / f'{date.today().month:02d}'
+    dated_path.mkdir(parents=True, exist_ok=True)
+    return dated_path
+
+def rename_file(source: Path, destination_path: Path):
+    """
+    Helper function that renames a file to reflect the new path. If a file with the same
+    name already exists in the destination folder, the file name is numbered and
+    incremented until the filename is unique (prevents overwriting files).
+
+    :param Path source: source of file to be moved
+    :param Path destination_path: path to destination directory
+    """
+    if Path(destination_path / source.name).exists():
+        increment = 0
+
+        while True:
+            increment += 1
+            new_name = destination_path / f'{source.stem}_{increment}{source.suffix}'
+
+            if not new_name.exists():
+                return new_name
+    else:
+        return destination_path / source.name
+
+class EventHandler(FileSystemEventHandler):
+    def __init__(self, watch_path: Path, destination_root: Path, max_age_days: int):
+        self.watch_path = watch_path.resolve()
+        self.destination_root = destination_root.resolve()
+        self.max_age_days = max_age_days
+
+    def on_modified(self, event):
+        for child in self.watch_path.iterdir():
+            # skips directories and non-specified extensions
+            if child.is_file() and child.suffix.lower() in extension_paths:
+                destination_path = self.destination_root / extension_paths[child.suffix.lower()]
+                destination_path = add_date_to_path(path=destination_path)
+                destination_path = rename_file(source=child, destination_path=destination_path)
+
+                # Calculate the threshold date for old files
+                threshold_date = date.today() - timedelta(days=self.max_age_days)
+
+                # Get the last modified time of the file
+                last_modified_time = date.fromtimestamp(child.stat().st_mtime)
+
+                # Check if the file is older than the threshold date
+                if last_modified_time < threshold_date:
+                    shutil.move(src=child, dst=destination_path)
+
+if __name__ == "__main__":
+    # Specify the paths
+    watched_folder_path = r'C:\Users\Ashtyn\PycharmProjects\FinalProject\Test Folder'
+    destination_root_path = r'C:\Users\Ashtyn\PycharmProjects\FinalProject\Destination Root'
+
+    # Create an event handler and start monitoring
+    event_handler = EventHandler(
+        watch_path=Path(watched_folder_path),
+        destination_root=Path(destination_root_path),
+        max_age_days=max_age_days
+    )
+
+    from watchdog.observers import Observer
+
+    observer = Observer()
+    observer.schedule(event_handler, path=watched_folder_path, recursive=True)
+    observer.start()
+
+    try:
+        print(f"Monitoring folder: {watched_folder_path}")
+        print(f"Organizing files to: {destination_root_path}")
+        observer.join()
+    except KeyboardInterrupt: 
+        observer.stop()
+
+    observer.join()
